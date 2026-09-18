@@ -1,0 +1,40 @@
+name: Deploy to Xserver
+
+on:
+  push:
+    branches:
+      - main # 当推送到 main 分支时触发自动部署（如果是 master 分支，请改成 master）
+
+jobs:
+  web-deploy:
+    name: Deploy Website
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 1. 拉取 GitHub 最新代码
+        uses: actions/checkout@v4
+
+      # 如果你的项目需要 Node.js 构建打包（例如 Vue / React / Vite / Next.js 静态导出）
+      # 如果只是纯 HTML/CSS 项目，可以把下面 Node.js 和 Build 这两步删掉
+      - name: 2. 安装 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: 3. 安装依赖并打包
+        run: |
+          npm install
+          npm run build
+
+      - name: 4. 通过 FTP 自动同步覆盖文件到 Xserver
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          protocol: ftp
+          port: 21
+          # 如果有 build 打包，上传 dist 目录里的文件；如果没有打包，改为 './' 上传根目录
+          local-dir: ./dist/ 
+          # 上传到 Xserver 上该域名的具体访问目录
+          server-dir: ./leehongda.com/public_html/
