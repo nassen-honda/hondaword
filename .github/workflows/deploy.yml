@@ -55,17 +55,40 @@ jobs:
           done
           [ "$missing" -eq 0 ] || exit 1
 
-          # 下面只检查格式，不打印任何密钥内容
-          case "$FTP_SERVER" in
-            sv*.xserver.jp) echo "OK: FTP_SERVER 是 sv***.xserver.jp 格式" ;;
-            *) echo "::warning::FTP_SERVER 不是 sv***.xserver.jp 格式。XServer 不能用域名或 IP，必须用服务器的主机名" ;;
-          esac
+          # ---- 前后空白/换行混入检查 ----
+          # 从别处复制粘贴时很容易带上不可见的换行或空格，服务器会直接返回
+          # 530 Login incorrect，而错误信息完全看不出原因。这里直接拦下来。
+          ws=0
+          for v in FTP_SERVER FTP_USERNAME FTP_PASSWORD; do
+            val="${!v}"
+            if [ "$val" != "$(printf '%s' "$val" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')" ]; then
+              echo "::error::Secret $v 的前后混入了空白或换行（复制粘贴的典型问题）。请删除该 Secret 后重新输入"
+              ws=1
+            fi
+          done
+          [ "$ws" -eq 0 ] || exit 1
 
-          case "$FTP_USERNAME" in
-            xs*) echo "OK: FTP_USERNAME 是主 FTP 账号（サーバーID）格式" ;;
-            *@*) echo "OK: FTP_USERNAME 是子 FTP 账号格式" ;;
-            *) echo "::warning::FTP_USERNAME 既不是 xs****** 也不是 xxx@domain 形式，XServer 会返回 530 登录失败" ;;
-          esac
+          # ---- 格式检查 ----
+          # 注意：只输出格式判定结果，绝不输出密钥内容本身
+          if [[ "$FTP_SERVER" =~ ^sv[0-9]+\.xserver\.jp$ ]]; then
+            echo "OK: FTP_SERVER 是 sv<数字>.xserver.jp 格式"
+          else
+            echo "::warning::FTP_SERVER 不是 sv<数字>.xserver.jp 格式。XServer 的 FTP 证书只覆盖 *.xserver.jp（实测 SAN = DNS:*.xserver.jp, DNS:xserver.jp），用 xs****.xsrv.jp 这类主机名会导致 FTPS 证书校验失败。请用サーバーパネル的 sv***.xserver.jp"
+          fi
+
+          if [[ "$FTP_USERNAME" =~ ^xs[0-9]+$ ]]; then
+            echo "OK: FTP_USERNAME 是主 FTP 账号（サーバーID）格式，长度 ${#FTP_USERNAME} 字符"
+          elif [[ "$FTP_USERNAME" =~ ^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$ ]]; then
+            echo "OK: FTP_USERNAME 是子 FTP 账号格式"
+          else
+            echo "::warning::FTP_USERNAME 既不是 xs<数字> 也不是 xxx@domain 形式，XServer 会返回 530 登录失败"
+          fi
+          echo "提示：若这里全部 OK 但 FTP 步骤仍然 530，XServer 上只有两种成因（按可能性排序）："
+          echo "  1) 密码错误 —— 必须用「サーバーパネル」的登录密码，不是 secure.xserver.ne.jp(XServerアカウント) 的密码。"
+          echo "     验证方法：无痕窗口登录サーバーパネル，用 <サーバーID> + 该密码，能进即密码正确。"
+          echo "  2) FTP制限設定 —— サーバーパネル → FTP制限設定 若设了许可 IP 白名单，"
+          echo "     GitHub runner 的 IP 会被拒（官方文档明言：パスワードが一致した場合でも接続を拒否）。"
+          echo "     自查：SSH 里执行 find ~ -maxdepth 3 -name '.ftpaccess' 2>/dev/null，有输出即已启用限制。"
 
       - name: 3. 通过 FTPS 同步到 Xserver
         uses: SamKirkland/FTP-Deploy-Action@v4.4.0
