@@ -1,9 +1,22 @@
-name: Deploy to Xserver
+# ⚠️ このワークフローは現在「手動実行のみ」です（push では動きません）。
+#
+#    デプロイは deploy.sh + .githooks/pre-push による
+#    「ローカルからの rsync over SSH」に移行しました。
+#
+#    移行した理由:
+#      1. XServer の SSH には「国外アクセス制限」が既定で ON になっており、
+#         海外 IP で動く GitHub Actions のランナーは接続を弾かれる。
+#      2. FTP 経由は認証で 530 Login incorrect が解消していない。
+#
+#    FTP 方式を復活させたい場合は、下の push: ブロックを有効に戻し、
+#    GitHub Secrets の FTP_PASSWORD を正しい値にしてください。
+
+name: Deploy to Xserver (FTP / manual only)
 
 on:
-  push:
-    branches:
-      - main
+  # push:
+  #   branches:
+  #     - main
   workflow_dispatch: # Actions タブから手動実行できるようにする
 
 # 同じワークフローを同時に走らせない（連続 push で転送が混ざるのを防ぐ）
