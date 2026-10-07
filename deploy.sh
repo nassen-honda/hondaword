@@ -62,7 +62,7 @@ if ! ssh $SSH_OPTS "$SSH_USER@$SSH_HOST" "test -d '$REMOTE_DIR'"; then
     "（パスが違う場合は deploy.sh の REMOTE_DIR を書き換えてください）"
 fi
 
-echo "▶ 2/4  転送（$RSYNC）"
+echo "▶ 2/4  転送（${RSYNC}）"
 # -rltzv にしているのは権限コピー(-p)を避けるため。
 # ただし openrsync は -p 無しでもソースの権限を持っていくので、
 # 次の 3/4 の chmod が必須。省くと画像や CSS が 403 になる。
