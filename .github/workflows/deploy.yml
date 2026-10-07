@@ -3,38 +3,107 @@ name: Deploy to Xserver
 on:
   push:
     branches:
-      - main # 当推送到 main 分支时触发自动部署（如果是 master 分支，请改成 master）
+      - main
+  workflow_dispatch: # Actions タブから手動実行できるようにする
+
+# 同じワークフローを同時に走らせない（連続 push で転送が混ざるのを防ぐ）
+concurrency:
+  group: deploy-xserver
+  cancel-in-progress: false
 
 jobs:
   web-deploy:
     name: Deploy Website
     runs-on: ubuntu-latest
+    timeout-minutes: 15 # ハングしたまま課金され続けるのを防ぐ
 
     steps:
       - name: 1. 拉取 GitHub 最新代码
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
-      # 如果你的项目需要 Node.js 构建打包（例如 Vue / React / Vite / Next.js 静态导出）
-      # 如果只是纯 HTML/CSS 项目，可以把下面 Node.js 和 Build 这两步删掉
-      - name: 2. 安装 Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
+      # ------------------------------------------------------------------
+      # 【重要】现在仓库里还没有网站源码。
+      #   静态站点（index.html / css / js）直接放在仓库根目录即可，
+      #   下面的 local-dir 用的是 ./ 。
+      #
+      #   将来如果改成需要构建的项目（Vite / React 等），
+      #   请取消注释下面两块，并把 FTP 那一步的 local-dir 改成 ./dist/
+      # ------------------------------------------------------------------
+      # - name: 2. 安装 Node.js
+      #   uses: actions/setup-node@v7
+      #   with:
+      #     node-version: 22
+      #     cache: npm
+      #
+      # - name: 3. 安装依赖并打包
+      #   run: |
+      #     npm ci
+      #     npm run build
 
-      - name: 3. 安装依赖并打包
+      - name: 2. 上传前自检（Secret 是否配置正确）
+        env:
+          FTP_SERVER: ${{ secrets.FTP_SERVER }}
+          FTP_USERNAME: ${{ secrets.FTP_USERNAME }}
+          FTP_PASSWORD: ${{ secrets.FTP_PASSWORD }}
         run: |
-          npm install
-          npm run build
+          missing=0
+          for v in FTP_SERVER FTP_USERNAME FTP_PASSWORD; do
+            if [ -z "${!v}" ]; then
+              echo "::error::Secret $v 未设置或为空，请到 Settings > Secrets and variables > Actions 添加"
+              missing=1
+            fi
+          done
+          [ "$missing" -eq 0 ] || exit 1
 
-      - name: 4. 通过 FTP 自动同步覆盖文件到 Xserver
-        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+          # 下面只检查格式，不打印任何密钥内容
+          case "$FTP_SERVER" in
+            sv*.xserver.jp) echo "OK: FTP_SERVER 是 sv***.xserver.jp 格式" ;;
+            *) echo "::warning::FTP_SERVER 不是 sv***.xserver.jp 格式。XServer 不能用域名或 IP，必须用服务器的主机名" ;;
+          esac
+
+          case "$FTP_USERNAME" in
+            xs*) echo "OK: FTP_USERNAME 是主 FTP 账号（サーバーID）格式" ;;
+            *@*) echo "OK: FTP_USERNAME 是子 FTP 账号格式" ;;
+            *) echo "::warning::FTP_USERNAME 既不是 xs****** 也不是 xxx@domain 形式，XServer 会返回 530 登录失败" ;;
+          esac
+
+      - name: 3. 通过 FTPS 同步到 Xserver
+        uses: SamKirkland/FTP-Deploy-Action@v4.4.0
         with:
           server: ${{ secrets.FTP_SERVER }}
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
-          protocol: ftp
+
+          # XServer 的 21 端口支持 explicit FTPS（已实测 FEAT 返回 AUTH TLS / PBSZ / PROT）。
+          # 明文 ftp 会把密码暴露在网络上，所以这里用 ftps。
+          # 万一握手失败，可临时改成 ftp 定位问题，但不要长期使用。
+          protocol: ftps
           port: 21
-          # 如果有 build 打包，上传 dist 目录里的文件；如果没有打包，改为 './' 上传根目录
-          local-dir: ./dist/ 
-          # 上传到 Xserver 上该域名的具体访问目录
+
+          # 静态站点：上传仓库根目录。注意结尾的斜杠不能少。
+          local-dir: ./
+
+          # XServer 主 FTP 账号登录后的家目录就是 /home/<サーバーID>/，
+          # 所以每个域名对应一个同名文件夹，网站根目录是 <域名>/public_html/。
+          # ⚠️ 如果你用的是「子 FTP 账号」且它的起点已经是该域名的 public_html，
+          #    这里要改成 ./ （请在服务器面板确认后再改）。
           server-dir: ./leehongda.com/public_html/
+
+          # ⚠️ 绝对不要加 dangerous-clean-slate: true
+          #    那会先把 server-dir 里的所有文件删光（连 exclude 的文件也删），
+          #    public_html 里若有 WordPress 等其他文件会一起消失。
+          #    默认行为只删除「上一次由本 Action 部署过、这次已不存在」的文件，是安全的。
+
+          # 不要把仓库说明、Actions 配置、同步状态文件传到网站上
+          exclude: |
+            **/.git*
+            **/.git*/**
+            **/.github/**
+            **/node_modules/**
+            README.md
+            .gitignore
+            .ftp-deploy-sync-state.json
+
+          # XServer 偶尔较慢，默认 30 秒容易超时中断
+          timeout: 120000
+          log-level: standard

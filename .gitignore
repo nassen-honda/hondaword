@@ -1,0 +1,24 @@
+# ---------- macOS ----------
+.DS_Store
+
+# ---------- Node / 构建产物 ----------
+node_modules/
+dist/
+build/
+out/
+.next/
+*.log
+npm-debug.log*
+
+# ---------- FTP-Deploy-Action の同期状態ファイル ----------
+# コミットすると同期判定が狂うので必ず除外する
+.ftp-deploy-sync-state.json
+
+# ---------- 環境変数 ----------
+.env
+.env.local
+.env.*.local
+
+# ---------- エディタ ----------
+.vscode/
+.idea/
